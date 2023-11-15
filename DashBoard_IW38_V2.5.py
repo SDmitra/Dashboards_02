@@ -18,6 +18,7 @@ def main():
     gp = pd.read_csv('gp.csv',encoding='cp1251',sep=';')
 
     #print(ar.dtypes)
+    ar['date_dataframe'] = pd.to_datetime(ar['date_dataframe'], format="%d.%m.%Y")
     endex = []
     startDate = pd.to_datetime(ar["date_dataframe"]).min()
     endDate = pd.to_datetime(ar["date_dataframe"]).max()
@@ -58,8 +59,8 @@ def main():
     
     # Фильтруйте DataFrame по выбранному диапазону дат
     filtered_dataframe = date_dataframe[
-        (pd.to_datetime(date_dataframe["dates"], format="%d.%m.%Y") >= dates[0]) &
-        (pd.to_datetime(date_dataframe["dates"], format="%d.%m.%Y") <= dates[1])
+        (pd.to_datetime(date_dataframe["dates"], format="%Y.%m.%d") >= dates[0]) &
+        (pd.to_datetime(date_dataframe["dates"], format="%Y.%m.%d") <= dates[1])
     ]
     st.dataframe(filtered_dataframe, hide_index=True)
     # Преобразуйте столбец 'date_dataframe' в формат datetime
@@ -71,36 +72,41 @@ def main():
     # Фильтруйте DataFrame ar по выбранным датам
     ar = ar[ar['date_dataframe'].isin(selected_dates)]
 
-    if selected_product == '8.1.Просроченные заказы ТОРО прошлых лет':
+    if selected_product == 'Все':
+        ar['new'] = None
+
+    elif selected_product == '8.1.Просроченные заказы ТОРО прошлых лет':
         metric = ds[ds['dc_metric_fullname_rus'] == selected_product]['dc_metric_fullname_rus'].values[0]
         st.subheader("Метрика: " + metric)
-        ar['date_1'] = pd.to_datetime(ar['date_1'])
+        ar['date_1'] = pd.to_datetime(ar['date_1'], format="%d.%m.%Y")
         ar = ar[ar['date_1'] <= last_day_of_previous_year]
+        ar['new'] = None
+        prosr_year_zkz = (ar['text_2'] != "ТЗКР") & (ar['date_1'] <= current_date)
+        ar.loc[prosr_year_zkz, 'new'] = 'Просроченные заказы прошлого года'
 
-
-    if selected_product == '8.2.Просроченные заказы ТОРО текущего года':
+    elif selected_product == '8.2.Просроченные заказы ТОРО текущего года':
         metric = ds[ds['dc_metric_fullname_rus'] == selected_product]['dc_metric_fullname_rus'].values[0]
         st.subheader("Метрика: " + metric)
-        ar['date_1'] = pd.to_datetime(ar['date_1'])
+        ar['date_1'] = pd.to_datetime(ar['date_1'], format="%d.%m.%Y")
         ar = ar[(ar['date_1'] < last_day_of_current_year) & (ar['date_1'] > last_day_of_previous_year)]
 
         ar['new'] = None
-        print(ar)
+        #print(ar)
 
-        zakr_zkz =  (ar['text_2'] == "ТЗКР") & (ar['date_1'] <= current_date)
+        zakr_zkz =  (ar['text_2'] == "ТЗКР") & (ar['date_1'] <= ar['date_dataframe'])
         ar.loc[zakr_zkz, 'new'] = '1. Закрытые заказы'
 
-        prosr_zkz = (ar['text_2'] != "ТЗКР") & (ar['date_1'] <= current_date)
+        prosr_zkz = (ar['text_2'] != "ТЗКР") & (ar['date_1'] <= ar['date_dataframe'])
         ar.loc[prosr_zkz, 'new'] = '2. Просроченные заказы'
 
-        aktual_zkz = (ar['text_2'] != "ТЗКР") & (ar['date_1'] > current_date)
+        aktual_zkz = (ar['text_2'] != "ТЗКР") & (ar['date_1'] > ar['date_dataframe'])
         ar.loc[aktual_zkz, 'new'] = '3. Актуальные заказы'
 
-        predzakr_zkz = (ar['text_2'] == "ТЗКР") & (ar['date_1'] > current_date)
+        predzakr_zkz = (ar['text_2'] == "ТЗКР") & (ar['date_1'] > ar['date_dataframe'])
         ar.loc[predzakr_zkz, 'new'] = '4. Предзакрытые заказы'
 
         # Создаем список из таблиц, которые нужно объединить
-        print(ar)
+        #print(ar)
 
 
     if selected_sp == 'Все':
@@ -126,7 +132,7 @@ def main():
 
     if selected_gp != 'Все' and selected_gp != 'Несколько ГП':
         gp_kod_value = gp[gp['gp_shortname_rus'] == selected_gp]['gp_kod'].values[0]
-        print(gp_kod_value)
+        #print(gp_kod_value)
         filtered_sp_gp_data = filtered_sp_data[filtered_sp_data['gp_kod'] == gp_kod_value]
         st.write("Код группы плановиков: " + gp_kod_value)
 
@@ -134,7 +140,7 @@ def main():
         gpMultiFilter = st.sidebar.multiselect("Выберите несколько ГП", list(uniq_gp))
         org_sp_gp_kod_values = gp[gp['gp_shortname_rus'].isin(gpMultiFilter)]['gp_kod'].unique()
         filtered_sp_gp_data = filtered_sp_data[filtered_sp_data['gp_kod'].isin(org_sp_gp_kod_values)]
-    #print(filtered_sp_gp_data)
+    print(filtered_sp_gp_data)
 
 
 
@@ -155,13 +161,18 @@ def main():
                                 index=endex,
                                 columns='date_dataframe', 
                                 aggfunc='sum')
+    
+    date_columns = pivot_table1.columns.tolist()
+    date_columns_datetime = pd.to_datetime(date_columns, format="%d.%m.%Y")
+    sorted_dates = date_columns_datetime.sort_values()
+    pivot_table1_sorted = pivot_table1.reindex(columns=sorted_dates.strftime("%d.%m.%Y"))
 
     #pivot_table1.dropna(how='all', inplace=True)
     cols1 = st.columns(2)
     # Первая таблица
     with cols1[0]:
         st.dataframe(
-            pivot_table1.style.background_gradient(cmap='RdYlGn_r', axis=None),
+            pivot_table1_sorted.style.background_gradient(cmap='RdYlGn_r', axis=None),
             column_config={
                 "org_sp_mixname_rus": "Завод"
             },
@@ -171,19 +182,21 @@ def main():
     # Вторая таблица
     with cols1[1]:
         st.dataframe(
-            pivot_table1.style.background_gradient(cmap='RdYlGn_r', axis=1),
+            pivot_table1_sorted.style.background_gradient(cmap='RdYlGn_r', axis=1),
             column_config={
                 "org_sp_mixname_rus": "Завод"
             },
             width=False, height=False, hide_index=False, use_container_width=True
         )
-
+    print(filtered_sp_data)
     # Группировка данных
-    grouped_data = filtered_sp_data.groupby(['date_dataframe', 'org_sp_kod'])['number_2'].sum().reset_index()
 
+    grouped_data_sp = filtered_sp_gp_data.groupby(['date_dataframe', 'org_sp_kod'])['number_2'].sum().reset_index()
+    grouped_data_zkz = filtered_sp_gp_data.groupby(['date_dataframe', 'org_sp_kod','new'])['number_2'].sum().reset_index()
+    grouped_data_zkz_monthly = grouped_data_zkz.groupby(pd.Grouper(key='date_dataframe', freq='M')).sum().reset_index()
     # # Создание линейного графика с использованием Seaborn
     # plt.figure(figsize=(6, 3))
-    # sns.lineplot(data=grouped_data, x='date_dataframe', y='number_2', hue='org_sp_kod')
+    # sns.lineplot(data=grouped_data_sp, x='date_dataframe', y='number_2', hue='org_sp_kod')
     # plt.title('График количества заказов по СП')
     # plt.xlabel('Дата')
     # plt.ylabel('Количество заказов')
@@ -191,8 +204,9 @@ def main():
 
     # # Отображение графика
     # st.pyplot()
+    
     if selected_product == '8.1.Просроченные заказы ТОРО прошлых лет':
-        fig1 = px.line(grouped_data, x='date_dataframe', y='number_2', color='org_sp_kod',
+        fig1 = px.line(grouped_data_sp, x='date_dataframe', y='number_2', color='org_sp_kod',
                     title='График количества заказов по СП', labels={'date_dataframe': 'Дата', 'number_2': 'Количество заказов'},
                     line_group='org_sp_kod')
 
@@ -208,7 +222,7 @@ def main():
     if selected_product == '8.2.Просроченные заказы ТОРО текущего года': 
         cols2 = st.columns(2)
         with cols2[0]:
-            fig1 = px.line(grouped_data, x='date_dataframe', y='number_2', color='org_sp_kod',
+            fig1 = px.line(grouped_data_sp, x='date_dataframe', y='number_2', color='org_sp_kod',
                         title='График количества заказов по СП', labels={'date_dataframe': 'Дата', 'number_2': 'Количество заказов'},
                         line_group='org_sp_kod')
 
@@ -218,9 +232,9 @@ def main():
                 legend_title='org_sp_kod'
             )
             st.plotly_chart(fig1)
-        
+
         with cols2[1]:
-            fig2 = px.bar(grouped_data, x='org_sp_kod', y='number_2', color='new',
+            fig2 = px.bar(grouped_data_zkz, x='date_dataframe', y='number_2', color='new',
                         title='График количества типов заказов по СП', labels={'org_sp_kod': 'Завод', 'number_2': 'Количество заказов'})
 
             fig2.update_layout(
